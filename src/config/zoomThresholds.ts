@@ -44,7 +44,7 @@ export const VISIBILITY = {
   PRIMARY: 7,
   SECONDARY: 9,
   TERTIARY: 10,
-  MINOR: 10.5,    // rues résidentielles dès zoom 10.5
+  MINOR: 10,      // rues résidentielles dès zoom 10
   SERVICE: 11,      // voies de service dès zoom 11
   PATH: 13,       // chemins et pistes dès zoom 13
 

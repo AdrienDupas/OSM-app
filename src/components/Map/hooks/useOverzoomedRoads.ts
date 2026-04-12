@@ -32,7 +32,7 @@ const FETCH_ZOOM = 12;
 const SOURCE_ID = 'overzoomed-roads';
 
 /** Zoom d'apparition des routes mineures overzoomed */
-const OZ_MIN_ZOOM = 10.5;
+const OZ_MIN_ZOOM = 10;
 
 /** Zoom de disparition (les tuiles natives prennent le relais) */
 const OZ_MAX_ZOOM = 12;
@@ -43,8 +43,8 @@ const MAX_CONCURRENT = 12;
 /** IDs des couches ajoutées (exportés pour le panneau de couches) */
 export const OVERZOOMED_LAYER_IDS = [
   'oz-road-service-casing',
-  'oz-road-service',
   'oz-road-minor-casing',
+  'oz-road-service',
   'oz-road-minor',
 ];
 
@@ -166,7 +166,7 @@ export function useOverzoomedRoads(map: MaplibreMap | null, zoom: number): void 
           layout: { 'line-cap': 'round', 'line-join': 'round' },
           paint: {
             'line-color': COLORS.serviceCasing,
-            'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.8, 12, 2],
+            'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.6, 12, 2],
           },
         } as maplibregl.LayerSpecification,
         beforeId,
@@ -183,7 +183,7 @@ export function useOverzoomedRoads(map: MaplibreMap | null, zoom: number): void 
           layout: { 'line-cap': 'round', 'line-join': 'round' },
           paint: {
             'line-color': COLORS.minorCasing,
-            'line-width': ['interpolate', ['linear'], ['zoom'], 10.5, 0.8, 12, 2],
+            'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.6, 12, 2],
           },
         } as maplibregl.LayerSpecification,
         beforeId,
@@ -200,7 +200,7 @@ export function useOverzoomedRoads(map: MaplibreMap | null, zoom: number): void 
           layout: { 'line-cap': 'round', 'line-join': 'round' },
           paint: {
             'line-color': COLORS.service,
-            'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.3, 12, 1],
+            'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.2, 12, 1],
           },
         } as maplibregl.LayerSpecification,
         beforeId,
@@ -217,7 +217,7 @@ export function useOverzoomedRoads(map: MaplibreMap | null, zoom: number): void 
           layout: { 'line-cap': 'round', 'line-join': 'round' },
           paint: {
             'line-color': COLORS.minor,
-            'line-width': ['interpolate', ['linear'], ['zoom'], 10.5, 0.3, 12, 1],
+            'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.2, 12, 1],
           },
         } as maplibregl.LayerSpecification,
         beforeId,

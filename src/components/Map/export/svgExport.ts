@@ -369,50 +369,86 @@ export function exportMapToSvg(
         groupedElements[groupId][layerId] = [];
       }
 
-      // Dédupliquer par feature id
-      const seen = new Set<string | number>();
+      // Détecter si c'est un layer de polygone (fill) — les polygones
+      // sont clippés aux bords de tuiles par MapLibre. Il faut fusionner
+      // tous les fragments d'un même polygone plutôt que dédupliquer.
+      const layerSpec = map.getStyle()?.layers?.find((l) => l.id === layerId);
+      const isFillLayer =
+        layerSpec && 'type' in layerSpec && (layerSpec as Record<string, unknown>).type === 'fill';
 
-      for (const feature of features) {
-        // Clé de déduplication
-        const geomAny = feature.geometry as unknown as { coordinates?: unknown };
-        const fid = feature.id ?? `${feature.properties?.['name'] ?? ''}_${feature.geometry.type}_${JSON.stringify(geomAny.coordinates ?? '').substring(0, 50)}`;
-        if (seen.has(fid)) continue;
-        seen.add(fid);
+      if (isFillLayer && group.id !== 'labels') {
+        // ── Polygones : fusionner les fragments de tuiles par feature ID ──
+        const fragmentsByFid: Record<string, MapGeoJSONFeature[]> = {};
+        for (const feature of features) {
+          const fid = String(
+            feature.id
+              ?? `${feature.properties?.['name'] ?? ''}_${feature.geometry.type}`,
+          );
+          if (!fragmentsByFid[fid]) fragmentsByFid[fid] = [];
+          fragmentsByFid[fid].push(feature);
+        }
 
-        // Labels → texte SVG (Point = ancrage simple, LineString = texte le long de la ligne)
-        if (group.id === 'labels') {
-          const name = feature.properties?.['name'] as string;
-          if (!name) continue;
+        for (const fid of Object.keys(fragmentsByFid)) {
+          const fragments = fragmentsByFid[fid];
+          // Combiner tous les anneaux de tous les fragments en un seul <path>
+          const pathParts: string[] = [];
+          for (const f of fragments) {
+            const geom = f.geometry;
+            const polygons =
+              geom.type === 'Polygon'
+                ? [geom.coordinates]
+                : geom.type === 'MultiPolygon'
+                  ? geom.coordinates
+                  : [];
+            for (const polygon of polygons) {
+              for (const ring of polygon as [number, number][][]) {
+                const pts = projectRing(map, ring);
+                pathParts.push(pointsToPathD(pts, true));
+              }
+            }
+          }
 
-          const fontSize = getFontSize(layerId);
-          const fontWeight = layerId.includes('city') || layerId.includes('country') ? 'bold' : 'normal';
-          const fontStyle = layerId.includes('water') ? 'italic' : 'normal';
-          const textTransform = layerId.includes('state') || layerId.includes('suburb') ? ' text-transform="uppercase"' : '';
-          const labelClass = `label-${layerId.replace('label-', '')}`;
-
-          if (feature.geometry.type === 'Point') {
-            const p = projectCoord(map, feature.geometry.coordinates as [number, number]);
-            groupedElements.labels[layerId].push(
-              `<text x="${p.x}" y="${p.y}" class="${labelClass}" font-family="system-ui, -apple-system, sans-serif" font-size="${fontSize}" font-weight="${fontWeight}" font-style="${fontStyle}" fill="#333" text-anchor="middle" dominant-baseline="central"${textTransform}>` +
-              `<tspan stroke="#fff" stroke-width="3" paint-order="stroke">${escapeXml(name)}</tspan>` +
-              `</text>`,
+          if (pathParts.length > 0) {
+            const d = pathParts.join(' ');
+            const dynamicStyle = getFeatureStyle(map, fragments[0]);
+            const fallbackStyle = getFallbackStyle(groupId, layerId);
+            const style = mergeStyles(fallbackStyle, dynamicStyle);
+            groupedElements[groupId][layerId].push(
+              `<path d="${d}" fill="${style.fill ?? '#ccc'}" stroke="${style.stroke ?? 'none'}" stroke-width="${style.strokeWidth ?? 0}" fill-rule="evenodd" opacity="${style.opacity ?? 1}" />`,
             );
-          } else if (feature.geometry.type === 'LineString') {
-            // Nom de rue le long d'une ligne → texte posé au milieu avec rotation
-            const coords = feature.geometry.coordinates as [number, number][];
-            const midInfo = getLineMidpoint(map, coords);
-            if (midInfo) {
+          }
+        }
+      } else {
+        // ── Lignes, points, labels : dédupliquer par feature id ──
+        const seen = new Set<string | number>();
+
+        for (const feature of features) {
+          const geomAny = feature.geometry as unknown as { coordinates?: unknown };
+          const fid = feature.id ?? `${feature.properties?.['name'] ?? ''}_${feature.geometry.type}_${JSON.stringify(geomAny.coordinates ?? '').substring(0, 50)}`;
+          if (seen.has(fid)) continue;
+          seen.add(fid);
+
+          // Labels → texte SVG (Point = ancrage simple, LineString = texte le long de la ligne)
+          if (group.id === 'labels') {
+            const name = feature.properties?.['name'] as string;
+            if (!name) continue;
+
+            const fontSize = getFontSize(layerId);
+            const fontWeight = layerId.includes('city') || layerId.includes('country') ? 'bold' : 'normal';
+            const fontStyle = layerId.includes('water') ? 'italic' : 'normal';
+            const textTransform = layerId.includes('state') || layerId.includes('suburb') ? ' text-transform="uppercase"' : '';
+            const labelClass = `label-${layerId.replace('label-', '')}`;
+
+            if (feature.geometry.type === 'Point') {
+              const p = projectCoord(map, feature.geometry.coordinates as [number, number]);
               groupedElements.labels[layerId].push(
-                `<text x="${midInfo.x}" y="${midInfo.y}" class="${labelClass}" font-family="system-ui, -apple-system, sans-serif" font-size="${fontSize}" font-weight="${fontWeight}" font-style="${fontStyle}" fill="#333" text-anchor="middle" dominant-baseline="central" transform="rotate(${midInfo.angle}, ${midInfo.x}, ${midInfo.y})"${textTransform}>` +
+                `<text x="${p.x}" y="${p.y}" class="${labelClass}" font-family="system-ui, -apple-system, sans-serif" font-size="${fontSize}" font-weight="${fontWeight}" font-style="${fontStyle}" fill="#333" text-anchor="middle" dominant-baseline="central"${textTransform}>` +
                 `<tspan stroke="#fff" stroke-width="3" paint-order="stroke">${escapeXml(name)}</tspan>` +
                 `</text>`,
               );
-            }
-          } else if (feature.geometry.type === 'MultiLineString') {
-            // Prendre la première ligne
-            const firstLine = (feature.geometry.coordinates as [number, number][][])[0];
-            if (firstLine) {
-              const midInfo = getLineMidpoint(map, firstLine);
+            } else if (feature.geometry.type === 'LineString') {
+              const coords = feature.geometry.coordinates as [number, number][];
+              const midInfo = getLineMidpoint(map, coords);
               if (midInfo) {
                 groupedElements.labels[layerId].push(
                   `<text x="${midInfo.x}" y="${midInfo.y}" class="${labelClass}" font-family="system-ui, -apple-system, sans-serif" font-size="${fontSize}" font-weight="${fontWeight}" font-style="${fontStyle}" fill="#333" text-anchor="middle" dominant-baseline="central" transform="rotate(${midInfo.angle}, ${midInfo.x}, ${midInfo.y})"${textTransform}>` +
@@ -420,19 +456,31 @@ export function exportMapToSvg(
                   `</text>`,
                 );
               }
+            } else if (feature.geometry.type === 'MultiLineString') {
+              const firstLine = (feature.geometry.coordinates as [number, number][][])[0];
+              if (firstLine) {
+                const midInfo = getLineMidpoint(map, firstLine);
+                if (midInfo) {
+                  groupedElements.labels[layerId].push(
+                    `<text x="${midInfo.x}" y="${midInfo.y}" class="${labelClass}" font-family="system-ui, -apple-system, sans-serif" font-size="${fontSize}" font-weight="${fontWeight}" font-style="${fontStyle}" fill="#333" text-anchor="middle" dominant-baseline="central" transform="rotate(${midInfo.angle}, ${midInfo.x}, ${midInfo.y})"${textTransform}>` +
+                    `<tspan stroke="#fff" stroke-width="3" paint-order="stroke">${escapeXml(name)}</tspan>` +
+                    `</text>`,
+                  );
+                }
+              }
             }
+            continue;
           }
-          continue;
-        }
 
-        // Autres géométries
-        const dynamicStyle = getFeatureStyle(map, feature);
-        const fallbackStyle = getFallbackStyle(groupId, layerId);
-        const style = mergeStyles(fallbackStyle, dynamicStyle);
+          // Autres géométries (lignes, points)
+          const dynamicStyle = getFeatureStyle(map, feature);
+          const fallbackStyle = getFallbackStyle(groupId, layerId);
+          const style = mergeStyles(fallbackStyle, dynamicStyle);
 
-        const svgEl = featureToSvgElement(map, feature, style);
-        if (svgEl) {
-          groupedElements[groupId][layerId].push(svgEl);
+          const svgEl = featureToSvgElement(map, feature, style);
+          if (svgEl) {
+            groupedElements[groupId][layerId].push(svgEl);
+          }
         }
       }
     }
@@ -451,16 +499,22 @@ export function exportMapToSvg(
   ];
 
   for (const groupId of groupOrder) {
-    const subGroups = groupedElements[groupId];
-    const subGroupEntries = Object.entries(subGroups).filter(([, els]) => els.length > 0);
-    if (subGroupEntries.length === 0) continue;
+    const group = LAYER_GROUPS.find((g) => g.id === groupId);
+    if (!group) continue;
 
-    const groupLabel = LAYER_GROUPS.find((g) => g.id === groupId)?.label ?? groupId;
+    // Parcourir les layer IDs dans leur ordre de rendu exact (même ordre que la carte)
+    const activeLayerIds = group.layerIds.filter(
+      (lid) => groupedElements[groupId][lid]?.length > 0,
+    );
+    if (activeLayerIds.length === 0) continue;
+
+    const groupLabel = group.label;
 
     svgParts.push(`  <!-- Couche: ${groupLabel} -->`);
     svgParts.push(`  <g id="layer-${groupId}" data-label="${groupLabel}">`);
 
-    for (const [layerId, elements] of subGroupEntries) {
+    for (const layerId of activeLayerIds) {
+      const elements = groupedElements[groupId][layerId];
       // Nom lisible du sous-calque (ex: "road-motorway-casing" → "motorway-casing")
       const subName = layerId.replace(/^(road|landuse|water|building|boundary|label)-?/, '');
       svgParts.push(`    <g id="layer-${groupId}--${subName || layerId}" data-sublayer="${layerId}">`);
