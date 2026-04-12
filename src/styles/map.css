@@ -1,0 +1,742 @@
+/* ==========================================================================
+   Map UI — Design moderne avec glassmorphism
+   ========================================================================== */
+
+:root {
+  --accent:        #4f46e5;
+  --accent-hover:  #4338ca;
+  --accent-light:  rgba(79, 70, 229, 0.1);
+  --glass-bg:      rgba(255, 255, 255, 0.82);
+  --glass-bg-deep: rgba(255, 255, 255, 0.95);
+  --glass-border:  rgba(255, 255, 255, 0.55);
+  --shadow-sm:     0 2px 12px rgba(0, 0, 0, 0.09);
+  --shadow-md:     0 8px 32px rgba(0, 0, 0, 0.13);
+  --radius:        14px;
+  --radius-btn:    10px;
+  --font:          system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --text-primary:  #1e1e2e;
+  --text-secondary:#64748b;
+  --text-muted:    #94a3b8;
+  --divider:       rgba(0, 0, 0, 0.06);
+}
+
+/* --------------------------------------------------------------------------
+   1. Conteneur principal
+   -------------------------------------------------------------------------- */
+
+.map-viewer {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  font-family: var(--font);
+}
+
+.map-container {
+  width: 100%;
+  height: 100%;
+}
+
+.maplibregl-canvas:focus {
+  outline: none;
+}
+
+/* --------------------------------------------------------------------------
+   2. Contrôles de navigation
+   -------------------------------------------------------------------------- */
+
+.map-controls {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 2;
+}
+
+.map-controls button {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-btn);
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s;
+}
+
+.map-controls button:hover {
+  background: var(--glass-bg-deep);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.map-controls button:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+}
+
+/* --------------------------------------------------------------------------
+   3. Indicateur de zoom
+   -------------------------------------------------------------------------- */
+
+.zoom-indicator {
+  position: absolute;
+  bottom: 30px;
+  right: 14px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  padding: 5px 13px;
+  border-radius: 24px;
+  box-shadow: var(--shadow-sm);
+  font-family: var(--font);
+  font-size: 12px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  pointer-events: none;
+  user-select: none;
+}
+
+.zoom-level {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  font-size: 13px;
+  letter-spacing: -0.3px;
+}
+
+.zoom-label {
+  color: var(--text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-weight: 500;
+}
+
+/* --------------------------------------------------------------------------
+   4. Panneau de couches
+   -------------------------------------------------------------------------- */
+
+.layer-panel {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 2;
+}
+
+.layer-panel-toggle {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-btn);
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s, color 0.15s;
+}
+
+.layer-panel-toggle:hover {
+  background: var(--glass-bg-deep);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  color: var(--accent);
+}
+
+.layer-panel.open .layer-panel-toggle {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.35);
+  transform: none;
+}
+
+.layer-panel-content {
+  background: var(--glass-bg-deep);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: 4px var(--radius) var(--radius) var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 14px 16px;
+  min-width: 190px;
+  margin-top: 4px;
+  font-family: var(--font);
+}
+
+.layer-panel-content h3 {
+  margin: 0 0 10px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+}
+
+.layer-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 4px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+  border-radius: 6px;
+  transition: color 0.12s, background 0.12s;
+}
+
+.layer-toggle:hover {
+  color: var(--text-primary);
+  background: var(--accent-light);
+}
+
+/* Toggle switch moderne */
+.layer-toggle input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 32px;
+  height: 18px;
+  border-radius: 9px;
+  background: #cbd5e1;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+}
+
+.layer-toggle input[type='checkbox']::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  transition: transform 0.2s ease;
+}
+
+.layer-toggle input[type='checkbox']:checked {
+  background: var(--accent);
+}
+
+.layer-toggle input[type='checkbox']:checked::after {
+  transform: translateX(14px);
+}
+
+/* --------------------------------------------------------------------------
+   5. Panneau d'export SVG
+   -------------------------------------------------------------------------- */
+
+.export-panel {
+  position: absolute;
+  top: 14px;
+  left: 58px;
+  z-index: 2;
+}
+
+.export-panel-toggle {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-btn);
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s, color 0.15s;
+}
+
+.export-panel-toggle:hover {
+  background: var(--glass-bg-deep);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  color: var(--accent);
+}
+
+.export-panel.open .export-panel-toggle {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.35);
+  transform: none;
+}
+
+.export-panel-content {
+  background: var(--glass-bg-deep);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: 4px var(--radius) var(--radius) var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 14px 16px;
+  min-width: 230px;
+  margin-top: 4px;
+  font-family: var(--font);
+}
+
+.export-panel-content h3 {
+  margin: 0 0 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+}
+
+.export-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+
+.export-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  margin-bottom: 12px;
+}
+
+.export-option input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 32px;
+  height: 18px;
+  border-radius: 9px;
+  background: #cbd5e1;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+}
+
+.export-option input[type='checkbox']::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  transition: transform 0.2s ease;
+}
+
+.export-option input[type='checkbox']:checked {
+  background: var(--accent);
+}
+
+.export-option input[type='checkbox']:checked::after {
+  transform: translateX(14px);
+}
+
+.export-button {
+  width: 100%;
+  padding: 9px 14px;
+  border: none;
+  border-radius: var(--radius-btn);
+  background: var(--accent);
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  letter-spacing: 0.2px;
+  transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
+  box-shadow: 0 2px 10px rgba(79, 70, 229, 0.3);
+}
+
+.export-button:hover:not(:disabled) {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.4);
+}
+
+.export-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.export-button:disabled {
+  background: #c7d2fe;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.export-info {
+  font-size: 11px;
+  color: var(--accent);
+  margin: 7px 0 0;
+  text-align: center;
+  font-weight: 500;
+}
+
+.export-layers-info {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--divider);
+}
+
+.export-layers-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin: 0 0 6px;
+}
+
+.export-layers-info ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.export-layers-info li {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.export-layers-info code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 10px;
+  background: var(--accent-light);
+  color: var(--accent);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+/* --------------------------------------------------------------------------
+   6. Barre de recherche
+   -------------------------------------------------------------------------- */
+
+.search-bar {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  width: 340px;
+  font-family: var(--font);
+}
+
+.search-input-wrapper {
+  display: flex;
+  align-items: center;
+  background: var(--glass-bg-deep);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  box-shadow: var(--shadow-md);
+  padding: 0 14px;
+  height: 40px;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.search-input-wrapper:focus-within {
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18), var(--shadow-md);
+  border-color: rgba(79, 70, 229, 0.4);
+}
+
+.search-icon {
+  font-size: 13px;
+  margin-right: 8px;
+  flex-shrink: 0;
+  opacity: 0.45;
+}
+
+.search-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  font-family: var(--font);
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.search-clear {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 17px;
+  color: var(--text-muted);
+  padding: 0 2px;
+  line-height: 1;
+  transition: color 0.12s;
+}
+
+.search-clear:hover {
+  color: var(--text-primary);
+}
+
+.search-spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid #e2e8f0;
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.65s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.search-results {
+  list-style: none;
+  padding: 6px;
+  margin: 6px 0 0;
+  background: var(--glass-bg-deep);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+
+.search-results li + li {
+  border-top: 1px solid var(--divider);
+}
+
+.search-result-item {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 10px;
+  transition: background 0.12s;
+}
+
+.search-result-item:hover {
+  background: var(--accent-light);
+}
+
+.search-result-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.search-result-detail {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+/* --------------------------------------------------------------------------
+   7. Panneau d'import
+   -------------------------------------------------------------------------- */
+
+.import-panel {
+  position: absolute;
+  top: 14px;
+  left: 102px;
+  z-index: 2;
+}
+
+.import-toggle {
+  height: 36px;
+  padding: 0 13px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-btn);
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  font-size: 13px;
+  font-family: var(--font);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.import-toggle:hover {
+  background: var(--glass-bg-deep);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  color: var(--text-primary);
+}
+
+.import-content {
+  background: var(--glass-bg-deep);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 14px 16px;
+  min-width: 230px;
+  margin-top: 6px;
+  font-family: var(--font);
+}
+
+.import-file-section {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.import-file-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--radius-btn);
+  background: var(--accent);
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
+  box-shadow: 0 2px 10px rgba(79, 70, 229, 0.3);
+}
+
+.import-file-label:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.4);
+}
+
+.import-file-input {
+  display: none;
+}
+
+.import-formats {
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.2px;
+}
+
+.import-error {
+  font-size: 12px;
+  color: #ef4444;
+  margin-top: 7px;
+  line-height: 1.4;
+  background: rgba(239, 68, 68, 0.08);
+  border-radius: 8px;
+  padding: 6px 9px;
+}
+
+.import-layer-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.import-layer-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 6px;
+  font-size: 12px;
+  border-radius: 8px;
+  transition: background 0.1s;
+}
+
+.import-layer-item:hover {
+  background: rgba(0,0,0,0.03);
+}
+
+.import-layer-color {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+
+.import-layer-name {
+  flex: 1;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  padding: 0;
+  font-family: var(--font);
+  transition: color 0.12s;
+}
+
+.import-layer-name:hover {
+  color: var(--accent);
+}
+
+.import-layer-toggle,
+.import-layer-remove {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 3px;
+  color: var(--text-muted);
+  border-radius: 4px;
+  transition: color 0.12s, background 0.12s;
+}
+
+.import-layer-toggle:hover {
+  color: var(--accent);
+  background: var(--accent-light);
+}
+
+.import-layer-remove:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.import-layer-toggle.active {
+  color: var(--accent);
+}
