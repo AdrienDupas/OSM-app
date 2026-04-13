@@ -7,7 +7,7 @@
  */
 import { useState, useCallback } from 'react';
 import type { Map } from 'maplibre-gl';
-import { exportMapToSvg, downloadSvg } from './export';
+import { exportMapToSvgAsync, downloadSvg } from './export';
 import type { ImportedLayer } from './hooks/useImportedLayers';
 
 interface ExportPanelProps {
@@ -27,23 +27,23 @@ export function ExportPanel({ map, importedLayers = [] }: ExportPanelProps) {
     setIsExporting(true);
     setLastExportInfo(null);
 
-    // Utiliser un timeout pour permettre au spinner de s'afficher
-    setTimeout(() => {
-      try {
-        const result = exportMapToSvg(map, {
-          includeLabels,
-          importedLayers: importedLayers.filter((l) => l.visible),
-        });
+    // Utiliser la version async qui attend que toutes les tuiles soient chargées
+    exportMapToSvgAsync(map, {
+      includeLabels,
+      importedLayers: importedLayers.filter((l) => l.visible),
+    })
+      .then((result) => {
         const sizeKb = Math.round(result.svgContent.length / 1024);
         downloadSvg(result.svgContent);
         setLastExportInfo(`${result.width}×${result.height}px — ${sizeKb} Ko`);
-      } catch (err) {
+      })
+      .catch((err) => {
         console.error('SVG export failed:', err);
         setLastExportInfo('Erreur lors de l\'export');
-      } finally {
+      })
+      .finally(() => {
         setIsExporting(false);
-      }
-    }, 50);
+      });
   }, [map, includeLabels, importedLayers]);
 
   return (

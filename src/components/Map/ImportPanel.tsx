@@ -35,13 +35,70 @@ export function ImportPanel({
 
   const handleFile = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file || !map) return;
+      const files = e.target.files;
+      if (!files || files.length === 0 || !map) return;
 
       setError(null);
       setLoading(true);
 
       try {
+        // Regrouper les fichiers par extension et nom de base
+        const fileMap: Record<string, File> = {};
+        for (const file of Array.from(files)) {
+          fileMap[file.name.toLowerCase()] = file;
+        }
+
+        // Détecter si c'est un import shapefile dézippé (au moins un .shp)
+        const shpFiles = Object.entries(fileMap).filter(([name]) => name.endsWith('.shp'));
+
+        if (shpFiles.length > 0) {
+          // Import shapefile dézippé
+          for (const [shpName, shpFile] of shpFiles) {
+            const baseName = shpName.replace(/\.shp$/, '');
+            const displayName = shpFile.name.replace(/\.shp$/i, '');
+
+            const shpBuffer = await shpFile.arrayBuffer();
+
+            // Chercher les fichiers compagnons (insensible à la casse)
+            const dbfFile = fileMap[baseName + '.dbf'];
+            const prjFile = fileMap[baseName + '.prj'];
+            const cpgFile = fileMap[baseName + '.cpg'];
+
+            const prjString = prjFile ? await prjFile.text() : undefined;
+            const cpgString = cpgFile ? await cpgFile.text() : undefined;
+
+            const shpData = shp.parseShp(shpBuffer, prjString);
+
+            let geojson: FeatureCollection;
+            if (dbfFile) {
+              const dbfBuffer = await dbfFile.arrayBuffer();
+              const dbfData = shp.parseDbf(dbfBuffer, cpgString);
+              geojson = shp.combine([shpData, dbfData]);
+            } else {
+              // Pas de .dbf → créer un FeatureCollection sans propriétés
+              geojson = {
+                type: 'FeatureCollection',
+                features: shpData.map((geom) => ({
+                  type: 'Feature' as const,
+                  geometry: geom as unknown as FeatureCollection['features'][0]['geometry'],
+                  properties: {},
+                })),
+              };
+            }
+
+            if (geojson && geojson.features.length > 0) {
+              onAddGeoJSON(displayName, geojson);
+            } else {
+              setError(`Le shapefile ${displayName} ne contient aucune entité.`);
+            }
+          }
+          setLoading(false);
+          if (fileRef.current) fileRef.current.value = '';
+          return;
+        }
+
+        // Import fichier unique (GeoJSON, ZIP, GeoPackage)
+        const file = files[0];
         const ext = file.name.split('.').pop()?.toLowerCase();
         let geojson: FeatureCollection | null = null;
         const baseName = file.name.replace(/\.[^.]+$/, '');
@@ -124,14 +181,15 @@ export function ImportPanel({
               <input
                 ref={fileRef}
                 type="file"
-                accept=".geojson,.json,.zip,.gpkg"
+                accept=".geojson,.json,.zip,.gpkg,.shp,.dbf,.prj,.shx,.cpg"
                 onChange={handleFile}
                 className="import-file-input"
                 disabled={loading}
+                multiple
               />
             </label>
             <span className="import-formats">
-              .geojson · .json · .zip (shapefile)
+              .geojson · .json · .shp (+.dbf, .prj) · .zip (shapefile)
             </span>
           </div>
 

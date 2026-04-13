@@ -377,54 +377,70 @@ export function exportMapToSvg(
         layerSpec && 'type' in layerSpec && (layerSpec as Record<string, unknown>).type === 'fill';
 
       if (isFillLayer && group.id !== 'labels') {
-        // ── Polygones : fusionner les fragments de tuiles par feature ID ──
-        const fragmentsByFid: Record<string, MapGeoJSONFeature[]> = {};
-        for (const feature of features) {
-          const fid = String(
-            feature.id
-              ?? `${feature.properties?.['name'] ?? ''}_${feature.geometry.type}`,
-          );
-          if (!fragmentsByFid[fid]) fragmentsByFid[fid] = [];
-          fragmentsByFid[fid].push(feature);
-        }
+        // ── Polygones : rendu individuel de chaque fragment de tuile ──
+        // IMPORTANT : on ne fusionne PAS les fragments en un seul <path>.
+        // Les tuiles vectorielles clippent les polygones à leurs limites avec
+        // un petit buffer. Si on combine tout en un seul <path fill-rule="evenodd">,
+        // les zones de chevauchement (buffer overlap) deviennent transparentes
+        // car elles sont à l'intérieur d'un nombre pair d'anneaux → bandes blanches.
+        //
+        // On rend chaque fragment comme un <path> distinct, et on ajoute un
+        // stroke de la même couleur que le fill pour masquer les micro-gaps
+        // résiduels entre tuiles adjacentes.
+        const seenCoords = new Set<string>();
 
-        for (const fid of Object.keys(fragmentsByFid)) {
-          const fragments = fragmentsByFid[fid];
-          // Combiner tous les anneaux de tous les fragments en un seul <path>
+        for (const feature of features) {
+          // Dédupliquer les fragments identiques retournés par plusieurs tuiles
+          const geomAny = feature.geometry as unknown as { coordinates?: unknown };
+          const coordKey = JSON.stringify(geomAny.coordinates ?? '');
+          if (seenCoords.has(coordKey)) continue;
+          seenCoords.add(coordKey);
+
+          const geom = feature.geometry;
+          const polygons =
+            geom.type === 'Polygon'
+              ? [geom.coordinates]
+              : geom.type === 'MultiPolygon'
+                ? geom.coordinates
+                : [];
+
+          if (polygons.length === 0) continue;
+
+          // Chaque polygone individuel garde son propre fill-rule="evenodd"
+          // (correct pour ses propres trous), sans interférence avec les
+          // fragments des tuiles voisines.
           const pathParts: string[] = [];
-          for (const f of fragments) {
-            const geom = f.geometry;
-            const polygons =
-              geom.type === 'Polygon'
-                ? [geom.coordinates]
-                : geom.type === 'MultiPolygon'
-                  ? geom.coordinates
-                  : [];
-            for (const polygon of polygons) {
-              for (const ring of polygon as [number, number][][]) {
-                const pts = projectRing(map, ring);
-                pathParts.push(pointsToPathD(pts, true));
-              }
+          for (const polygon of polygons) {
+            for (const ring of polygon as [number, number][][]) {
+              const pts = projectRing(map, ring);
+              pathParts.push(pointsToPathD(pts, true));
             }
           }
 
           if (pathParts.length > 0) {
             const d = pathParts.join(' ');
-            const dynamicStyle = getFeatureStyle(map, fragments[0]);
+            const dynamicStyle = getFeatureStyle(map, feature);
             const fallbackStyle = getFallbackStyle(groupId, layerId);
             const style = mergeStyles(fallbackStyle, dynamicStyle);
+            const fillColor = style.fill ?? '#ccc';
+            // Le stroke de la même couleur que le fill comble les micro-gaps
+            // aux jointures de tuiles (quantification des coordonnées).
             groupedElements[groupId][layerId].push(
-              `<path d="${d}" fill="${style.fill ?? '#ccc'}" stroke="${style.stroke ?? 'none'}" stroke-width="${style.strokeWidth ?? 0}" fill-rule="evenodd" opacity="${style.opacity ?? 1}" />`,
+              `<path d="${d}" fill="${fillColor}" stroke="${fillColor}" stroke-width="0.5" stroke-linejoin="round" fill-rule="evenodd" opacity="${style.opacity ?? 1}" />`,
             );
           }
         }
       } else {
-        // ── Lignes, points, labels : dédupliquer par feature id ──
-        const seen = new Set<string | number>();
+        // ── Lignes, points, labels : dédupliquer par géométrie ──
+        // On utilise les coordonnées complètes comme clé de déduplication
+        // car feature.id est local à la tuile et peut être différent pour
+        // le même segment de route retourné depuis des tuiles différentes.
+        const seen = new Set<string>();
 
         for (const feature of features) {
           const geomAny = feature.geometry as unknown as { coordinates?: unknown };
-          const fid = feature.id ?? `${feature.properties?.['name'] ?? ''}_${feature.geometry.type}_${JSON.stringify(geomAny.coordinates ?? '').substring(0, 50)}`;
+          const coordKey = JSON.stringify(geomAny.coordinates ?? '');
+          const fid = `${feature.layer?.id ?? ''}_${feature.properties?.['class'] ?? ''}_${coordKey}`;
           if (seen.has(fid)) continue;
           seen.add(fid);
 
@@ -688,6 +704,27 @@ function mergeStyles(base: FeatureStyle, override: FeatureStyle): FeatureStyle {
     dashArray: override.dashArray ?? base.dashArray,
     radius: override.radius ?? base.radius,
   };
+}
+
+/**
+ * Attend que la carte soit dans l'état "idle" (toutes les tuiles chargées
+ * et rendues) avant de lancer l'export. Ceci évite les bandes blanches dues
+ * à des tuiles pas encore chargées au moment de l'export.
+ */
+export async function exportMapToSvgAsync(
+  map: Map,
+  options: SvgExportOptions = {},
+): Promise<SvgExportResult> {
+  // Si la carte n'est pas encore idle, attendre qu'elle le soit
+  if (!map.isSourceLoaded(map.getStyle()?.sources ? Object.keys(map.getStyle().sources!)[0] : '')) {
+    await new Promise<void>((resolve) => {
+      const onIdle = () => { resolve(); };
+      map.once('idle', onIdle);
+      // Sécurité : ne pas attendre plus de 5 secondes
+      setTimeout(() => { map.off('idle', onIdle); resolve(); }, 5000);
+    });
+  }
+  return exportMapToSvg(map, options);
 }
 
 /**
