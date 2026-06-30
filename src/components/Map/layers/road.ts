@@ -210,21 +210,6 @@ const pathLayer: LayerSpecification = {
   },
 } as unknown as LayerSpecification;
 
-/** Voies ferrées */
-const railLayer: LayerSpecification = {
-  id: 'road-rail',
-  type: 'line',
-  source: SOURCE,
-  'source-layer': 'transportation',
-  minzoom: 9,
-  filter: ['==', ['get', 'class'], 'rail'],
-  paint: {
-    'line-color': '#bbb',
-    'line-width': ['interpolate', ['linear'], ['zoom'], 9, 0.5, 14, 1.5, 18, 3],
-    'line-dasharray': [4, 2],
-  },
-} as LayerSpecification;
-
 // ---------------------------------------------------------------------------
 // Assemblage final
 // ---------------------------------------------------------------------------
@@ -236,13 +221,13 @@ const allFills = allPairs.map((pair) => pair[1]);
 
 /**
  * Toutes les couches de routes, dans l'ordre de rendu :
- *   1. Voie ferrée
- *   2. Chemins
- *   3. Contours (casings) du moins au plus important
- *   4. Remplissages (fills) du moins au plus important
+ *   1. Chemins / pistes cyclables
+ *   2. Contours (casings) du moins au plus important
+ *   3. Remplissages (fills) du moins au plus important
+ *
+ * Les voies ferrées sont dans le fichier `rail.ts` (groupe séparé).
  */
 export const roadLayers: LayerSpecification[] = [
-  railLayer,
   cyclewayLayer,
   pathLayer,
   ...allCasings,

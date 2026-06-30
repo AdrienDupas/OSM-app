@@ -17,6 +17,7 @@ import { waterLayers } from './water';
 import { landuseLayers } from './landuse';
 import { buildingLayers } from './building';
 import { roadLayers, roadLayerIds } from './road';
+import { railLayers, RAIL_SUBGROUPS } from './rail';
 import { boundaryLayers } from './boundary';
 import { labelLayers } from './label';
 import { OVERZOOMED_LAYER_IDS } from '../hooks/useOverzoomedRoads';
@@ -24,6 +25,16 @@ import { OVERZOOMED_LAYER_IDS } from '../hooks/useOverzoomedRoads';
 // ---------------------------------------------------------------------------
 // Groupes de couches pour le panneau de contrôle
 // ---------------------------------------------------------------------------
+
+/** Sous-groupe optionnel d'un LayerGroup (toggle individuel à l'intérieur) */
+export interface LayerSubgroup {
+  /** Identifiant unique au sein du groupe parent */
+  id: string;
+  /** Libellé affiché dans le panneau */
+  label: string;
+  /** IDs des couches MapLibre composant ce sous-groupe */
+  layerIds: string[];
+}
 
 /** Représente un groupe de couches affichable/masquable dans l'UI */
 export interface LayerGroup {
@@ -33,12 +44,17 @@ export interface LayerGroup {
   label: string;
   /** IDs des couches MapLibre appartenant à ce groupe */
   layerIds: string[];
+  /**
+   * Sous-groupes optionnels. Si présent, chaque sous-groupe a son propre
+   * toggle dans le panneau et son propre `<g>` dans l'export SVG.
+   */
+  subgroups?: LayerSubgroup[];
 }
 
 /**
  * Groupes de couches disponibles dans le panneau de contrôle.
  * L'ordre suit l'ordre de rendu de la carte (du bas vers le haut),
- * identique à ALL_LAYERS : landuse → water → roads → buildings → boundaries → labels
+ * identique à ALL_LAYERS : landuse → water → roads → rails → buildings → boundaries → labels
  */
 export const LAYER_GROUPS: LayerGroup[] = [
   {
@@ -55,6 +71,12 @@ export const LAYER_GROUPS: LayerGroup[] = [
     id: 'roads',
     label: 'Routes',
     layerIds: [...OVERZOOMED_LAYER_IDS, ...roadLayerIds],
+  },
+  {
+    id: 'rails',
+    label: 'Voies ferrées',
+    layerIds: RAIL_SUBGROUPS.flatMap((sg) => sg.layerIds),
+    subgroups: RAIL_SUBGROUPS,
   },
   {
     id: 'buildings',
@@ -83,6 +105,7 @@ const ALL_LAYERS: LayerSpecification[] = [
   ...landuseLayers,
   ...waterLayers,
   ...roadLayers,
+  ...railLayers,
   ...buildingLayers,
   ...boundaryLayers,
   ...labelLayers,

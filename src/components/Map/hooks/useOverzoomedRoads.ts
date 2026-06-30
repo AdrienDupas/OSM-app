@@ -238,11 +238,124 @@ const SECONDARY_STAGE: UnderzoomStage = {
   ],
 };
 
+// ÉTAGE RAIL — voies ferrées (`class=rail`) à z=[7, 8).
+// OMT n'inclut les rails qu'à partir de z=8 → on récupère les tuiles z=8
+// pour rendre toutes les variantes (main, service, narrow_gauge, preserved)
+// dès le zoom 7. Les funiculaires (z=12+ natif) ne nécessitent pas d'underzoom.
+const RAIL_STAGE: UnderzoomStage = {
+  sourceId: 'underzoomed-rail',
+  activeMin: 7,
+  activeMax: 8,
+  fetchZoom: 8,
+  classes: ['rail'],
+  // Inséré avant les bâtiments pour respecter l'ordre roads → rails → buildings
+  beforeLayer: 'building',
+  layerIds: [
+    'uz-rail-narrow',
+    'uz-rail-preserved',
+    'uz-rail-service',
+    'uz-rail-main-base',
+    'uz-rail-main-hatch',
+  ],
+  buildLayers: (sourceId, maxzoom) => [
+    {
+      id: 'uz-rail-narrow',
+      type: 'line',
+      source: sourceId,
+      maxzoom,
+      filter: [
+        'all',
+        ['==', ['get', 'class'], 'rail'],
+        ['==', ['get', 'subclass'], 'narrow_gauge'],
+      ],
+      layout: { 'line-cap': 'butt', 'line-join': 'round' },
+      paint: {
+        'line-color': '#8b4513',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 7, 0.4, 8, 0.6],
+        'line-dasharray': [4, 2],
+      },
+    } as LayerSpecification,
+    {
+      id: 'uz-rail-preserved',
+      type: 'line',
+      source: sourceId,
+      maxzoom,
+      filter: [
+        'all',
+        ['==', ['get', 'class'], 'rail'],
+        ['==', ['get', 'subclass'], 'preserved'],
+      ],
+      layout: { 'line-cap': 'butt', 'line-join': 'round' },
+      paint: {
+        'line-color': '#a0522d',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 7, 0.4, 8, 0.6],
+        'line-dasharray': [2, 3],
+      },
+    } as LayerSpecification,
+    {
+      id: 'uz-rail-service',
+      type: 'line',
+      source: sourceId,
+      maxzoom,
+      filter: [
+        'all',
+        ['==', ['get', 'class'], 'rail'],
+        ['has', 'service'],
+      ],
+      layout: { 'line-cap': 'butt', 'line-join': 'round' },
+      paint: {
+        'line-color': '#888888',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 7, 0.3, 8, 0.5],
+        'line-dasharray': [3, 2],
+      },
+    } as LayerSpecification,
+    {
+      id: 'uz-rail-main-base',
+      type: 'line',
+      source: sourceId,
+      maxzoom,
+      filter: [
+        'all',
+        ['==', ['get', 'class'], 'rail'],
+        ['match', ['get', 'subclass'], ['rail', ''], true, false],
+        ['!', ['has', 'service']],
+      ],
+      layout: { 'line-cap': 'butt', 'line-join': 'round' },
+      paint: {
+        'line-color': '#3a3a3a',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 7, 0.6, 8, 1],
+      },
+    } as LayerSpecification,
+    {
+      id: 'uz-rail-main-hatch',
+      type: 'line',
+      source: sourceId,
+      maxzoom,
+      filter: [
+        'all',
+        ['==', ['get', 'class'], 'rail'],
+        ['match', ['get', 'subclass'], ['rail', ''], true, false],
+        ['!', ['has', 'service']],
+      ],
+      layout: { 'line-cap': 'butt', 'line-join': 'round' },
+      paint: {
+        'line-color': '#ffffff',
+        // Les hachures n'apparaissent qu'au-delà de z=7.5 (sinon illisible)
+        'line-width': ['interpolate', ['linear'], ['zoom'], 7.5, 0.4, 8, 0.8],
+        'line-dasharray': [0.4, 3],
+      },
+    } as LayerSpecification,
+  ],
+};
+
 // IDs exportés pour le LayerPanel (groupe « Routes »)
 export const OVERZOOMED_LAYER_IDS: string[] = [
   ...MINOR_STAGE.layerIds,
   ...SECONDARY_STAGE.layerIds,
 ];
+
+/** IDs exportés pour le LayerPanel (groupe « Voies ferrées ») */
+export const UNDERZOOMED_RAIL_LAYER_IDS: string[] = [...RAIL_STAGE.layerIds];
 
 // ---------------------------------------------------------------------------
 // Hook générique pour un étage
@@ -383,4 +496,5 @@ export function useOverzoomedRoads(
 ): void {
   useUnderzoomStage(map, zoom, MINOR_STAGE);
   useUnderzoomStage(map, zoom, SECONDARY_STAGE);
+  useUnderzoomStage(map, zoom, RAIL_STAGE);
 }

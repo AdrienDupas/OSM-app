@@ -248,10 +248,42 @@ function getFallbackStyle(groupId: string, layerId: string): FeatureStyle {
     if (layerId.includes('path')) {
       return { stroke: '#999999', strokeWidth: 0.5, opacity: 0.8, dashArray: '2 2' };
     }
-    if (layerId.includes('rail')) {
-      return { stroke: '#bbbbbb', strokeWidth: 1, opacity: 1, dashArray: '4 2' };
-    }
     return { stroke: '#cccccc', strokeWidth: 1, opacity: 1 };
+  }
+
+  // Voies ferrées
+  if (groupId === 'rails') {
+    if (layerId.includes('rail-main-base') || layerId === 'uz-rail-main-base') {
+      return { stroke: '#3a3a3a', strokeWidth: 1.2, opacity: 1 };
+    }
+    if (layerId.includes('rail-main-hatch') || layerId === 'uz-rail-main-hatch') {
+      return { stroke: '#ffffff', strokeWidth: 1.6, opacity: 1, dashArray: '0.4 3' };
+    }
+    if (layerId.includes('rail-narrow')) {
+      return { stroke: '#8b4513', strokeWidth: 0.8, opacity: 1, dashArray: '4 2' };
+    }
+    if (layerId.includes('rail-preserved')) {
+      return { stroke: '#a0522d', strokeWidth: 0.8, opacity: 1, dashArray: '2 3' };
+    }
+    if (layerId.includes('rail-funicular')) {
+      return { stroke: '#ff7f00', strokeWidth: 1, opacity: 1, dashArray: '2 1.5' };
+    }
+    if (layerId.includes('rail-service')) {
+      return { stroke: '#888888', strokeWidth: 0.6, opacity: 1, dashArray: '3 2' };
+    }
+    if (layerId.includes('transit-subway')) {
+      return { stroke: '#6633cc', strokeWidth: 1, opacity: 0.9, dashArray: '3 2' };
+    }
+    if (layerId.includes('transit-tram')) {
+      return { stroke: '#2e7d32', strokeWidth: 0.9, opacity: 1 };
+    }
+    if (layerId.includes('transit-light-rail')) {
+      return { stroke: '#00838f', strokeWidth: 0.9, opacity: 1 };
+    }
+    if (layerId.includes('transit-monorail')) {
+      return { stroke: '#5d4037', strokeWidth: 0.9, opacity: 1, dashArray: '1 2' };
+    }
+    return { stroke: '#555555', strokeWidth: 1, opacity: 1 };
   }
 
   // Eau
@@ -529,15 +561,44 @@ export function exportMapToSvg(
     svgParts.push(`  <!-- Couche: ${groupLabel} -->`);
     svgParts.push(`  <g id="layer-${groupId}" data-label="${groupLabel}">`);
 
-    for (const layerId of activeLayerIds) {
-      const elements = groupedElements[groupId][layerId];
-      // Nom lisible du sous-calque (ex: "road-motorway-casing" → "motorway-casing")
-      const subName = layerId.replace(/^(road|landuse|water|building|boundary|label)-?/, '');
-      svgParts.push(`    <g id="layer-${groupId}--${subName || layerId}" data-sublayer="${layerId}">`);
-      for (const el of elements) {
-        svgParts.push(`      ${el}`);
+    if (group.subgroups && group.subgroups.length > 0) {
+      // ── Groupe avec sous-groupes : un <g> par sous-groupe ──
+      const subgroupForLayer: Record<string, { id: string; label: string }> = {};
+      for (const sg of group.subgroups) {
+        for (const lid of sg.layerIds) {
+          subgroupForLayer[lid] = { id: sg.id, label: sg.label };
+        }
       }
-      svgParts.push(`    </g>`);
+
+      for (const sg of group.subgroups) {
+        const subActiveLayers = sg.layerIds.filter(
+          (lid) => groupedElements[groupId][lid]?.length > 0,
+        );
+        if (subActiveLayers.length === 0) continue;
+
+        svgParts.push(
+          `    <g id="layer-${groupId}--${sg.id}" data-label="${sg.label}">`,
+        );
+        for (const layerId of subActiveLayers) {
+          const elements = groupedElements[groupId][layerId];
+          for (const el of elements) {
+            svgParts.push(`      ${el}`);
+          }
+        }
+        svgParts.push(`    </g>`);
+      }
+    } else {
+      // ── Groupe plat : un <g> par layer-id ──
+      for (const layerId of activeLayerIds) {
+        const elements = groupedElements[groupId][layerId];
+        // Nom lisible du sous-calque (ex: "road-motorway-casing" → "motorway-casing")
+        const subName = layerId.replace(/^(road|landuse|water|building|boundary|label)-?/, '');
+        svgParts.push(`    <g id="layer-${groupId}--${subName || layerId}" data-sublayer="${layerId}">`);
+        for (const el of elements) {
+          svgParts.push(`      ${el}`);
+        }
+        svgParts.push(`    </g>`);
+      }
     }
 
     svgParts.push(`  </g>`);

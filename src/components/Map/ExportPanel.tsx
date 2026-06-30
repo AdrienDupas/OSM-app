@@ -92,6 +92,7 @@ export function ExportPanel({ map, importedLayers = [] }: ExportPanelProps) {
               <li><code>layer-landuse</code> — Occupation du sol</li>
               <li><code>layer-water</code> — Eau</li>
               <li><code>layer-roads</code> — Routes</li>
+              <li><code>layer-rails</code> — Voies ferrées (sous-groupes par type)</li>
               <li><code>layer-buildings</code> — Bâtiments</li>
               <li><code>layer-boundaries</code> — Limites admin.</li>
               <li><code>layer-labels</code> — Noms de lieux</li>

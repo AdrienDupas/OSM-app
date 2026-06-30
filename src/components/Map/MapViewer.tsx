@@ -34,41 +34,63 @@ export function MapViewer() {
     importedLayers.setMap(map);
   }, [map, importedLayers.setMap]);
 
-  // État de visibilité des groupes de couches
-  const [visibleGroups, setVisibleGroups] = useState<Set<string>>(
-    () => new Set(LAYER_GROUPS.map((g) => g.id)),
-  );
+  // État de visibilité des groupes/sous-groupes de couches.
+  // Selecteur = 'groupId' (groupe entier) OU 'groupId/subgroupId' (sous-groupe).
+  const [visibleSelectors, setVisibleSelectors] = useState<Set<string>>(() => {
+    const initial = new Set<string>();
+    for (const g of LAYER_GROUPS) {
+      if (g.subgroups && g.subgroups.length > 0) {
+        for (const sg of g.subgroups) {
+          initial.add(`${g.id}/${sg.id}`);
+        }
+      } else {
+        initial.add(g.id);
+      }
+    }
+    return initial;
+  });
 
-  /** Active ou désactive la visibilité d'un groupe de couches */
-  const handleToggleGroup = useCallback(
-    (groupId: string) => {
+  /** Active ou désactive la visibilité d'un groupe ou sous-groupe de couches */
+  const handleToggleSelector = useCallback(
+    (selector: string) => {
       if (!map) return;
 
+      // Résoudre les layerIds concernés par ce sélecteur
+      const [groupId, subgroupId] = selector.split('/');
       const group = LAYER_GROUPS.find((g) => g.id === groupId);
       if (!group) return;
 
-      const isCurrentlyVisible = visibleGroups.has(groupId);
+      let layerIds: string[] = [];
+      if (subgroupId) {
+        const sg = group.subgroups?.find((s) => s.id === subgroupId);
+        if (!sg) return;
+        layerIds = sg.layerIds;
+      } else {
+        layerIds = group.layerIds;
+      }
+
+      const isCurrentlyVisible = visibleSelectors.has(selector);
       const newVisibility = isCurrentlyVisible ? 'none' : 'visible';
 
       // Mise à jour des couches MapLibre
-      for (const layerId of group.layerIds) {
+      for (const layerId of layerIds) {
         if (map.getLayer(layerId)) {
           map.setLayoutProperty(layerId, 'visibility', newVisibility);
         }
       }
 
       // Mise à jour de l'état React
-      setVisibleGroups((prev) => {
+      setVisibleSelectors((prev) => {
         const next = new Set(prev);
         if (isCurrentlyVisible) {
-          next.delete(groupId);
+          next.delete(selector);
         } else {
-          next.add(groupId);
+          next.add(selector);
         }
         return next;
       });
     },
-    [map, visibleGroups],
+    [map, visibleSelectors],
   );
 
   return (
@@ -82,8 +104,8 @@ export function MapViewer() {
           <ZoomIndicator zoom={zoom} />
           <LayerPanel
             groups={LAYER_GROUPS}
-            visibleGroups={visibleGroups}
-            onToggleGroup={handleToggleGroup}
+            visibleSelectors={visibleSelectors}
+            onToggleSelector={handleToggleSelector}
           />
           <ExportPanel map={map} importedLayers={importedLayers.layers} />
           <ImportPanel
