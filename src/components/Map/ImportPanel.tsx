@@ -9,7 +9,7 @@ import type { FeatureCollection } from 'geojson';
 import type { ImportedLayer } from './hooks/useImportedLayers';
 
 
-import shp from 'shpjs';
+import shp, { parseShp, parseDbf, combine } from 'shpjs';
 
 interface ImportPanelProps {
   map: Map | null;
@@ -67,13 +67,13 @@ export function ImportPanel({
             const prjString = prjFile ? await prjFile.text() : undefined;
             const cpgString = cpgFile ? await cpgFile.text() : undefined;
 
-            const shpData = shp.parseShp(shpBuffer, prjString);
+            const shpData = parseShp(shpBuffer, prjString);
 
             let geojson: FeatureCollection;
             if (dbfFile) {
               const dbfBuffer = await dbfFile.arrayBuffer();
-              const dbfData = shp.parseDbf(dbfBuffer, cpgString);
-              geojson = shp.combine([shpData, dbfData]);
+              const dbfData = parseDbf(dbfBuffer, cpgString);
+              geojson = combine([shpData, dbfData]);
             } else {
               // Pas de .dbf → créer un FeatureCollection sans propriétés
               geojson = {

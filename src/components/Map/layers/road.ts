@@ -129,8 +129,8 @@ const ROAD_STYLES: RoadStyle[] = [
     minzoom: VISIBILITY.SECONDARY,
     color: COLORS.secondary,
     casingColor: COLORS.secondaryCasing,
-    width:        [[9, 0.5], [12, 1.5], [16, 5], [18, 12]],
-    casingWidth:  [[9, 1.5], [12, 3],   [16, 7], [18, 14]],
+    width:        [[7, 0.3], [9, 0.5], [12, 1.5], [16, 5], [18, 12]],
+    casingWidth:  [[7, 1],   [9, 1.5], [12, 3],   [16, 7], [18, 14]],
   },
   {
     id: 'primary',

@@ -1,63 +1,47 @@
 /**
- * Hook pour afficher les routes mineures (residential, unclassified, living_street)
- * aux niveaux de zoom 10.5–12, en contournant la limitation des tuiles vectorielles
- * qui n'incluent ces données qu'à partir du zoom 12.
+ * Hook pour afficher des classes de routes à des niveaux de zoom où les tuiles
+ * vectorielles OpenMapTiles ne les contiennent pas encore.
  *
- * Fonctionnement :
- *   1. Lorsque le zoom est entre 10.5 et 12, le hook calcule quelles tuiles zoom-12
- *      couvrent la vue actuelle.
- *   2. Il télécharge ces tuiles PBF, les décode avec @mapbox/vector-tile + pbf,
- *      et extrait les features `class=minor` / `class=service` de la couche
- *      `transportation`.
- *   3. Les features sont converties en GeoJSON et injectées sur la carte via une
- *      source GeoJSON + couches line stylisées comme les routes classiques.
- *   4. Les couches ont un maxzoom de 12, donc elles disparaissent dès que les tuiles
- *      natives prennent le relais.
- *   5. Un cache de tuiles évite les téléchargements redondants.
+ * Deux étages parallèles :
+ *
+ *   1. ÉTAGE BAS — routes `minor` / `service` entre z=10 et z=12.
+ *      Les tuiles OMT n'incluent `minor` qu'à partir de z=12 → on télécharge
+ *      manuellement les tuiles z=12 couvrant la vue pour afficher ces routes
+ *      dès z=10.
+ *
+ *   2. ÉTAGE HAUT — routes `secondary` entre z=7 et z=8.
+ *      OMT n'inclut `secondary` qu'à partir de z=8 → on télécharge les tuiles
+ *      z=8 pour afficher les routes secondaires dès z=7.
+ *
+ * Mécanique commune :
+ *   - Calcul des tuiles couvrant la vue au zoom de fetch.
+ *   - Téléchargement des PBF, décodage via @mapbox/vector-tile + pbf.
+ *   - Cache des tuiles déjà téléchargées.
+ *   - Concurrence limitée pour les requêtes.
+ *   - Source GeoJSON + couches MapLibre stylées comme les routes natives.
+ *   - `maxzoom` sur les couches → disparition dès que la tuile native prend
+ *     le relais.
  */
 import { useEffect, useRef, useCallback } from 'react';
-import type { Map as MaplibreMap, GeoJSONSource } from 'maplibre-gl';
+import type {
+  Map as MaplibreMap,
+  GeoJSONSource,
+  LayerSpecification,
+} from 'maplibre-gl';
 import { VectorTile } from '@mapbox/vector-tile';
 import Protobuf from 'pbf';
 import { COLORS, TILE_CONFIG } from '../../../config/mapConfig';
 
 // ---------------------------------------------------------------------------
-// Constantes
+// Utilitaires partagés
 // ---------------------------------------------------------------------------
 
-/** Zoom auquel les tuiles PBF sont récupérées (premier zoom contenant minor) */
-const FETCH_ZOOM = 12;
-
-/** Identifiant de la source GeoJSON sur la carte */
-const SOURCE_ID = 'overzoomed-roads';
-
-/** Zoom d'apparition des routes mineures overzoomed */
-const OZ_MIN_ZOOM = 10;
-
-/** Zoom de disparition (les tuiles natives prennent le relais) */
-const OZ_MAX_ZOOM = 12;
-
-/** Nombre max de requêtes parallèles */
 const MAX_CONCURRENT = 12;
 
-/** IDs des couches ajoutées (exportés pour le panneau de couches) */
-export const OVERZOOMED_LAYER_IDS = [
-  'oz-road-service-casing',
-  'oz-road-minor-casing',
-  'oz-road-service',
-  'oz-road-minor',
-];
-
-// ---------------------------------------------------------------------------
-// Utilitaires tuiles
-// ---------------------------------------------------------------------------
-
-/** Convertit une longitude en coordonnée X de tuile au zoom donné */
 function lng2tile(lng: number, zoom: number): number {
   return Math.floor(((lng + 180) / 360) * Math.pow(2, zoom));
 }
 
-/** Convertit une latitude en coordonnée Y de tuile au zoom donné */
 function lat2tile(lat: number, zoom: number): number {
   const latRad = (lat * Math.PI) / 180;
   return Math.floor(
@@ -66,7 +50,6 @@ function lat2tile(lat: number, zoom: number): number {
   );
 }
 
-/** Récupère l'URL template des tuiles depuis le TileJSON */
 async function fetchTileUrlTemplate(): Promise<string> {
   const resp = await fetch(TILE_CONFIG.url);
   if (!resp.ok) throw new Error(`TileJSON fetch failed: ${resp.status}`);
@@ -74,7 +57,6 @@ async function fetchTileUrlTemplate(): Promise<string> {
   return json.tiles[0] as string;
 }
 
-/** Télécharge et décode une tuile PBF, en extrayant les features des classes voulues */
 async function decodeTile(
   urlTemplate: string,
   z: number,
@@ -105,10 +87,6 @@ async function decodeTile(
   return features;
 }
 
-/**
- * Exécute un tableau de fonctions asynchrones avec un niveau de
- * concurrence maximal.
- */
 async function runWithConcurrency<T>(
   tasks: (() => Promise<T>)[],
   concurrency: number,
@@ -123,120 +101,192 @@ async function runWithConcurrency<T>(
     }
   }
 
-  const workers = Array.from({ length: Math.min(concurrency, tasks.length) }, () =>
-    worker(),
+  const workers = Array.from(
+    { length: Math.min(concurrency, tasks.length) },
+    () => worker(),
   );
   await Promise.all(workers);
   return results;
 }
 
 // ---------------------------------------------------------------------------
-// Hook
+// Définition d'un étage de routes "underzoomed"
 // ---------------------------------------------------------------------------
 
-/**
- * Active le chargement des routes mineures overzoomed quand le zoom est
- * entre 10.5 et 12.
- */
-export function useOverzoomedRoads(map: MaplibreMap | null, zoom: number): void {
+interface UnderzoomStage {
+  /** ID de la source GeoJSON sur la carte */
+  sourceId: string;
+  /** Zoom à partir duquel cet étage est actif (inclusif) */
+  activeMin: number;
+  /** Zoom auquel cet étage devient inactif (exclusif) — tuiles natives OK */
+  activeMax: number;
+  /** Zoom des tuiles vectorielles à télécharger pour récupérer les features */
+  fetchZoom: number;
+  /** Classes de routes (propriété `class`) à extraire */
+  classes: string[];
+  /** Couche MapLibre avant laquelle insérer (pour ordre de rendu) */
+  beforeLayer?: string;
+  /** IDs des couches à créer */
+  layerIds: string[];
+  /** Fabrique de couches MapLibre pour cette source */
+  buildLayers: (sourceId: string, maxzoom: number) => LayerSpecification[];
+}
+
+// ---------------------------------------------------------------------------
+// Définitions des étages
+// ---------------------------------------------------------------------------
+
+const MINOR_STAGE: UnderzoomStage = {
+  sourceId: 'overzoomed-roads',
+  activeMin: 10,
+  activeMax: 12,
+  fetchZoom: 12,
+  classes: ['minor', 'service'],
+  beforeLayer: 'road-service-casing',
+  layerIds: [
+    'oz-road-service-casing',
+    'oz-road-minor-casing',
+    'oz-road-service',
+    'oz-road-minor',
+  ],
+  buildLayers: (sourceId, maxzoom) => [
+    {
+      id: 'oz-road-service-casing',
+      type: 'line',
+      source: sourceId,
+      maxzoom,
+      filter: ['==', ['get', 'class'], 'service'],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': COLORS.serviceCasing,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.6, 12, 2],
+      },
+    } as LayerSpecification,
+    {
+      id: 'oz-road-minor-casing',
+      type: 'line',
+      source: sourceId,
+      maxzoom,
+      filter: ['==', ['get', 'class'], 'minor'],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': COLORS.minorCasing,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.6, 12, 2],
+      },
+    } as LayerSpecification,
+    {
+      id: 'oz-road-service',
+      type: 'line',
+      source: sourceId,
+      maxzoom,
+      filter: ['==', ['get', 'class'], 'service'],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': COLORS.service,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.2, 12, 1],
+      },
+    } as LayerSpecification,
+    {
+      id: 'oz-road-minor',
+      type: 'line',
+      source: sourceId,
+      maxzoom,
+      filter: ['==', ['get', 'class'], 'minor'],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': COLORS.minor,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.2, 12, 1],
+      },
+    } as LayerSpecification,
+  ],
+};
+
+const SECONDARY_STAGE: UnderzoomStage = {
+  sourceId: 'underzoomed-secondary',
+  activeMin: 7,
+  activeMax: 8,
+  fetchZoom: 8,
+  classes: ['secondary'],
+  // Inséré avant le casing primary pour rester sous les routes primaires/trunk/motorway
+  beforeLayer: 'road-primary-casing',
+  layerIds: ['uz-road-secondary-casing', 'uz-road-secondary'],
+  buildLayers: (sourceId, maxzoom) => [
+    {
+      id: 'uz-road-secondary-casing',
+      type: 'line',
+      source: sourceId,
+      maxzoom,
+      filter: ['==', ['get', 'class'], 'secondary'],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': COLORS.secondaryCasing,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 7, 1, 8, 1.5],
+      },
+    } as LayerSpecification,
+    {
+      id: 'uz-road-secondary',
+      type: 'line',
+      source: sourceId,
+      maxzoom,
+      filter: ['==', ['get', 'class'], 'secondary'],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': COLORS.secondary,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 7, 0.3, 8, 0.5],
+      },
+    } as LayerSpecification,
+  ],
+};
+
+// IDs exportés pour le LayerPanel (groupe « Routes »)
+export const OVERZOOMED_LAYER_IDS: string[] = [
+  ...MINOR_STAGE.layerIds,
+  ...SECONDARY_STAGE.layerIds,
+];
+
+// ---------------------------------------------------------------------------
+// Hook générique pour un étage
+// ---------------------------------------------------------------------------
+
+function useUnderzoomStage(
+  map: MaplibreMap | null,
+  zoom: number,
+  stage: UnderzoomStage,
+) {
   const tileCache = useRef(new Map<string, GeoJSON.Feature[]>());
   const urlTemplate = useRef<string | null>(null);
   const layersAdded = useRef(false);
-  const fetchId = useRef(0); // annule les requêtes obsolètes
+  const fetchId = useRef(0);
 
-  const active = zoom >= OZ_MIN_ZOOM && zoom < OZ_MAX_ZOOM;
+  const active = zoom >= stage.activeMin && zoom < stage.activeMax;
 
-  /** Ajoute les couches de rendu (une seule fois) */
   const ensureLayers = useCallback(
     (m: MaplibreMap) => {
       if (layersAdded.current) return;
-      if (!m.getSource(SOURCE_ID)) return;
+      if (!m.getSource(stage.sourceId)) return;
 
-      // Trouver la couche avant laquelle insérer (premier casing de route)
-      const beforeId = m.getLayer('road-service-casing') ? 'road-service-casing' : undefined;
+      const beforeId =
+        stage.beforeLayer && m.getLayer(stage.beforeLayer)
+          ? stage.beforeLayer
+          : undefined;
 
-      // Service — casing
-      m.addLayer(
-        {
-          id: 'oz-road-service-casing',
-          type: 'line',
-          source: SOURCE_ID,
-          maxzoom: OZ_MAX_ZOOM,
-          filter: ['==', ['get', 'class'], 'service'],
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: {
-            'line-color': COLORS.serviceCasing,
-            'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.6, 12, 2],
-          },
-        } as maplibregl.LayerSpecification,
-        beforeId,
-      );
-
-      // Minor — casing
-      m.addLayer(
-        {
-          id: 'oz-road-minor-casing',
-          type: 'line',
-          source: SOURCE_ID,
-          maxzoom: OZ_MAX_ZOOM,
-          filter: ['==', ['get', 'class'], 'minor'],
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: {
-            'line-color': COLORS.minorCasing,
-            'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.6, 12, 2],
-          },
-        } as maplibregl.LayerSpecification,
-        beforeId,
-      );
-
-      // Service — fill
-      m.addLayer(
-        {
-          id: 'oz-road-service',
-          type: 'line',
-          source: SOURCE_ID,
-          maxzoom: OZ_MAX_ZOOM,
-          filter: ['==', ['get', 'class'], 'service'],
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: {
-            'line-color': COLORS.service,
-            'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.2, 12, 1],
-          },
-        } as maplibregl.LayerSpecification,
-        beforeId,
-      );
-
-      // Minor — fill
-      m.addLayer(
-        {
-          id: 'oz-road-minor',
-          type: 'line',
-          source: SOURCE_ID,
-          maxzoom: OZ_MAX_ZOOM,
-          filter: ['==', ['get', 'class'], 'minor'],
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: {
-            'line-color': COLORS.minor,
-            'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.2, 12, 1],
-          },
-        } as maplibregl.LayerSpecification,
-        beforeId,
-      );
-
+      for (const spec of stage.buildLayers(stage.sourceId, stage.activeMax)) {
+        if (!m.getLayer(spec.id)) {
+          m.addLayer(spec, beforeId);
+        }
+      }
       layersAdded.current = true;
     },
-    [],
+    [stage],
   );
 
-  /** Télécharge les tuiles zoom-12 couvrant la vue et met à jour la source */
   const fetchAndUpdate = useCallback(
     async (m: MaplibreMap) => {
-      // Résoudre le template d'URL une seule fois
       if (!urlTemplate.current) {
         try {
           urlTemplate.current = await fetchTileUrlTemplate();
         } catch {
-          console.warn('[overzoom] Impossible de récupérer le TileJSON');
+          console.warn('[underzoom] Impossible de récupérer le TileJSON');
           return;
         }
       }
@@ -244,44 +294,42 @@ export function useOverzoomedRoads(map: MaplibreMap | null, zoom: number): void 
       const currentFetchId = ++fetchId.current;
       const bounds = m.getBounds();
 
-      const xMin = lng2tile(bounds.getWest(), FETCH_ZOOM);
-      const xMax = lng2tile(bounds.getEast(), FETCH_ZOOM);
-      const yMin = lat2tile(bounds.getNorth(), FETCH_ZOOM);
-      const yMax = lat2tile(bounds.getSouth(), FETCH_ZOOM);
+      const xMin = lng2tile(bounds.getWest(), stage.fetchZoom);
+      const xMax = lng2tile(bounds.getEast(), stage.fetchZoom);
+      const yMin = lat2tile(bounds.getNorth(), stage.fetchZoom);
+      const yMax = lat2tile(bounds.getSouth(), stage.fetchZoom);
 
       const allFeatures: GeoJSON.Feature[] = [];
       const tasks: (() => Promise<void>)[] = [];
 
       for (let x = xMin; x <= xMax; x++) {
         for (let y = yMin; y <= yMax; y++) {
-          const key = `${FETCH_ZOOM}/${x}/${y}`;
+          const key = `${stage.fetchZoom}/${x}/${y}`;
           const cached = tileCache.current.get(key);
           if (cached) {
             allFeatures.push(...cached);
             continue;
           }
-          const cx = x,
-            cy = y;
+          const cx = x;
+          const cy = y;
           tasks.push(async () => {
             const features = await decodeTile(
               urlTemplate.current!,
-              FETCH_ZOOM,
+              stage.fetchZoom,
               cx,
               cy,
-              ['minor', 'service'],
+              stage.classes,
             );
-            tileCache.current.set(`${FETCH_ZOOM}/${cx}/${cy}`, features);
+            tileCache.current.set(`${stage.fetchZoom}/${cx}/${cy}`, features);
             allFeatures.push(...features);
           });
         }
       }
 
-      // Exécuter les requêtes avec concurrence limitée
       if (tasks.length > 0) {
         await runWithConcurrency(tasks, MAX_CONCURRENT);
       }
 
-      // Ne pas mettre à jour si une requête plus récente a démarré
       if (fetchId.current !== currentFetchId) return;
 
       const geojson: GeoJSON.FeatureCollection = {
@@ -289,36 +337,31 @@ export function useOverzoomedRoads(map: MaplibreMap | null, zoom: number): void 
         features: allFeatures,
       };
 
-      // Créer ou mettre à jour la source
-      const existing = m.getSource(SOURCE_ID) as GeoJSONSource | undefined;
+      const existing = m.getSource(stage.sourceId) as GeoJSONSource | undefined;
       if (existing) {
         existing.setData(geojson);
       } else {
-        m.addSource(SOURCE_ID, { type: 'geojson', data: geojson });
+        m.addSource(stage.sourceId, { type: 'geojson', data: geojson });
       }
 
-      // Ajouter les couches si pas encore fait
       ensureLayers(m);
     },
-    [ensureLayers],
+    [stage, ensureLayers],
   );
 
   useEffect(() => {
     if (!map) return;
 
     if (!active) {
-      // Quand inactif, vider la source pour économiser la mémoire
-      const src = map.getSource(SOURCE_ID) as GeoJSONSource | undefined;
+      const src = map.getSource(stage.sourceId) as GeoJSONSource | undefined;
       if (src) {
         src.setData({ type: 'FeatureCollection', features: [] });
       }
       return;
     }
 
-    // Charger immédiatement
     fetchAndUpdate(map);
 
-    // Recharger au déplacement
     const handler = () => {
       fetchAndUpdate(map);
     };
@@ -327,5 +370,17 @@ export function useOverzoomedRoads(map: MaplibreMap | null, zoom: number): void 
     return () => {
       map.off('moveend', handler);
     };
-  }, [map, active, fetchAndUpdate]);
+  }, [map, active, fetchAndUpdate, stage.sourceId]);
+}
+
+// ---------------------------------------------------------------------------
+// Hook public — orchestre les deux étages
+// ---------------------------------------------------------------------------
+
+export function useOverzoomedRoads(
+  map: MaplibreMap | null,
+  zoom: number,
+): void {
+  useUnderzoomStage(map, zoom, MINOR_STAGE);
+  useUnderzoomStage(map, zoom, SECONDARY_STAGE);
 }

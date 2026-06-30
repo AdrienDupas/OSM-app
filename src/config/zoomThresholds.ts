@@ -42,7 +42,7 @@ export const VISIBILITY = {
   MOTORWAY: 4,
   TRUNK: 5,
   PRIMARY: 7,
-  SECONDARY: 9,
+  SECONDARY: 7,
   TERTIARY: 10,
   MINOR: 10,      // rues résidentielles dès zoom 10
   SERVICE: 11,      // voies de service dès zoom 11
@@ -53,8 +53,8 @@ export const VISIBILITY = {
   OCEAN: 0,
   RIVER: 8,
   STREAM: 13,
-  PARK: 8,
-  FOREST: 6,
+  PARK: 7,
+  FOREST: 7,
   LANDUSE: 10,
 
   // --- Bâtiments ---
