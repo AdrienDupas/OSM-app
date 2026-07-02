@@ -20,7 +20,7 @@ import { roadLayers, roadLayerIds } from './road';
 import { railLayers, RAIL_SUBGROUPS } from './rail';
 import { boundaryLayers } from './boundary';
 import { labelLayers } from './label';
-import { OVERZOOMED_LAYER_IDS } from '../hooks/useOverzoomedRoads';
+import { OVERZOOMED_LAYER_IDS, UNDERZOOMED_LANDUSE_LAYER_IDS } from '../hooks/useOverzoomedRoads';
 
 // ---------------------------------------------------------------------------
 // Groupes de couches pour le panneau de contrôle
@@ -60,7 +60,7 @@ export const LAYER_GROUPS: LayerGroup[] = [
   {
     id: 'landuse',
     label: 'Occupation du sol',
-    layerIds: landuseLayers.map((l) => l.id),
+    layerIds: [...UNDERZOOMED_LANDUSE_LAYER_IDS, ...landuseLayers.map((l) => l.id)],
   },
   {
     id: 'water',

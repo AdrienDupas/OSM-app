@@ -31,6 +31,7 @@ import type {
 import { VectorTile } from '@mapbox/vector-tile';
 import Protobuf from 'pbf';
 import { COLORS, TILE_CONFIG } from '../../../config/mapConfig';
+import { BUILTUP_CLASSES } from '../layers/landuse';
 
 // ---------------------------------------------------------------------------
 // Utilitaires partagés
@@ -62,6 +63,7 @@ async function decodeTile(
   z: number,
   x: number,
   y: number,
+  sourceLayer: string,
   classes: string[],
 ): Promise<GeoJSON.Feature[]> {
   const url = urlTemplate
@@ -74,7 +76,7 @@ async function decodeTile(
   const buffer = await resp.arrayBuffer();
 
   const tile = new VectorTile(new Protobuf(buffer));
-  const layer = tile.layers['transportation'];
+  const layer = tile.layers[sourceLayer];
   if (!layer) return [];
 
   const features: GeoJSON.Feature[] = [];
@@ -122,7 +124,9 @@ interface UnderzoomStage {
   activeMax: number;
   /** Zoom des tuiles vectorielles à télécharger pour récupérer les features */
   fetchZoom: number;
-  /** Classes de routes (propriété `class`) à extraire */
+  /** Nom de la source layer OMT à lire dans les tuiles (default: transportation) */
+  sourceLayer?: string;
+  /** Classes de features (propriété `class`) à extraire */
   classes: string[];
   /** Couche MapLibre avant laquelle insérer (pour ordre de rendu) */
   beforeLayer?: string;
@@ -357,6 +361,45 @@ export const OVERZOOMED_LAYER_IDS: string[] = [
 /** IDs exportés pour le LayerPanel (groupe « Voies ferrées ») */
 export const UNDERZOOMED_RAIL_LAYER_IDS: string[] = [...RAIL_STAGE.layerIds];
 
+// ÉTAGE LANDUSE — zones bâties (résidentiel + commercial + industriel +
+// ferroviaire + militaire + hôpitaux + campus + stades…) à z=[7, 8).
+// OMT n'inclut ces classes du landuse qu'à partir de z=8 → on récupère les
+// tuiles z=8 pour visualiser les taches urbaines dès z=7. Rendu unifié avec
+// la couleur résidentielle pour former un masque « zones bâties ».
+const LANDUSE_STAGE: UnderzoomStage = {
+  sourceId: 'underzoomed-landuse',
+  activeMin: 7,
+  activeMax: 8,
+  fetchZoom: 8,
+  sourceLayer: 'landuse',
+  classes: [...BUILTUP_CLASSES],
+  // Inséré juste avant l'eau pour rester en dessous du reste
+  beforeLayer: 'water',
+  layerIds: ['uz-landuse-builtup'],
+  buildLayers: (sourceId, maxzoom) => [
+    {
+      id: 'uz-landuse-builtup',
+      type: 'fill',
+      source: sourceId,
+      maxzoom,
+      filter: [
+        'match',
+        ['get', 'class'],
+        [...BUILTUP_CLASSES],
+        true,
+        false,
+      ],
+      paint: {
+        'fill-color': COLORS.residential,
+        'fill-opacity': ['interpolate', ['linear'], ['zoom'], 7, 0.4, 8, 0.4],
+      },
+    } as unknown as LayerSpecification,
+  ],
+};
+
+/** IDs exportés pour le LayerPanel (groupe « Occupation du sol ») */
+export const UNDERZOOMED_LANDUSE_LAYER_IDS: string[] = [...LANDUSE_STAGE.layerIds];
+
 // ---------------------------------------------------------------------------
 // Hook générique pour un étage
 // ---------------------------------------------------------------------------
@@ -431,6 +474,7 @@ function useUnderzoomStage(
               stage.fetchZoom,
               cx,
               cy,
+              stage.sourceLayer ?? 'transportation',
               stage.classes,
             );
             tileCache.current.set(`${stage.fetchZoom}/${cx}/${cy}`, features);
@@ -497,4 +541,5 @@ export function useOverzoomedRoads(
   useUnderzoomStage(map, zoom, MINOR_STAGE);
   useUnderzoomStage(map, zoom, SECONDARY_STAGE);
   useUnderzoomStage(map, zoom, RAIL_STAGE);
+  useUnderzoomStage(map, zoom, LANDUSE_STAGE);
 }

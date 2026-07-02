@@ -18,6 +18,42 @@ import { VISIBILITY } from '../../../config/zoomThresholds';
 
 const SOURCE = TILE_CONFIG.sourceId;
 
+/**
+ * Classes OpenMapTiles du source-layer `landuse` représentant du bâti /
+ * de l'urbanisation. Utilisé au zoom régional (z=7-9) comme un masque unifié
+ * de « taches urbaines » avant que les couches typées ne prennent le relais
+ * à z=10+.
+ */
+export const BUILTUP_CLASSES = [
+  'residential',
+  'commercial',
+  'retail',
+  'industrial',
+  'railway',
+  'military',
+  'hospital',
+  'school',
+  'university',
+  'college',
+  'kindergarten',
+  'stadium',
+] as const;
+
+/**
+ * Sous-ensemble utilisé par le masque unifié à z=8-9 : uniquement les classes
+ * qui n'ont pas de couche typée dédiée à ce niveau de zoom (résidentiel,
+ * militaire, kindergarten, stade). Les autres — commercial, industriel,
+ * hospital, école, cimetière — sont rendues avec leur couleur propre par
+ * leurs couches typées dès z=8, donc on les exclut du masque pour ne pas
+ * les recouvrir de la teinte résidentielle.
+ */
+const BUILTUP_MASK_CLASSES = [
+  'residential',
+  'military',
+  'kindergarten',
+  'stadium',
+];
+
 export const landuseLayers: LayerSpecification[] = [
   // Forêts (couverture naturelle)
   {
@@ -62,17 +98,27 @@ export const landuseLayers: LayerSpecification[] = [
     },
   } as LayerSpecification,
 
-  // Zones résidentielles
+  // Masque « taches urbaines » — comble les classes bâties qui n'ont pas de
+  // couche typée dédiée (résidentiel, militaire, kindergarten, stade) à
+  // partir de z=8 côté natif (z=7 via underzoom). Les autres classes bâties
+  // (commercial, industriel, hôpital, école, cimetière) sont rendues avec
+  // leurs couleurs propres dès z=8 par leurs couches typées.
   {
-    id: 'landuse-residential',
+    id: 'landuse-builtup',
     type: 'fill',
     source: SOURCE,
     'source-layer': 'landuse',
-    minzoom: VISIBILITY.LANDUSE,
-    filter: ['==', ['get', 'class'], 'residential'],
+    minzoom: 8,
+    filter: [
+      'match',
+      ['get', 'class'],
+      BUILTUP_MASK_CLASSES,
+      true,
+      false,
+    ],
     paint: {
       'fill-color': COLORS.residential,
-      'fill-opacity': ['interpolate', ['linear'], ['zoom'], 10, 0.3, 14, 0.5],
+      'fill-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.4, 10, 0.35, 14, 0.5],
     },
   } as LayerSpecification,
 
@@ -82,11 +128,11 @@ export const landuseLayers: LayerSpecification[] = [
     type: 'fill',
     source: SOURCE,
     'source-layer': 'landuse',
-    minzoom: VISIBILITY.LANDUSE,
+    minzoom: 8,
     filter: ['match', ['get', 'class'], ['commercial', 'retail'], true, false],
     paint: {
       'fill-color': COLORS.commercial,
-      'fill-opacity': ['interpolate', ['linear'], ['zoom'], 10, 0.3, 14, 0.5],
+      'fill-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.35, 10, 0.35, 14, 0.5],
     },
   } as LayerSpecification,
 
@@ -96,11 +142,11 @@ export const landuseLayers: LayerSpecification[] = [
     type: 'fill',
     source: SOURCE,
     'source-layer': 'landuse',
-    minzoom: VISIBILITY.LANDUSE,
+    minzoom: 8,
     filter: ['match', ['get', 'class'], ['industrial', 'railway'], true, false],
     paint: {
       'fill-color': COLORS.industrial,
-      'fill-opacity': ['interpolate', ['linear'], ['zoom'], 10, 0.3, 14, 0.5],
+      'fill-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.35, 10, 0.35, 14, 0.5],
     },
   } as LayerSpecification,
 
@@ -110,11 +156,11 @@ export const landuseLayers: LayerSpecification[] = [
     type: 'fill',
     source: SOURCE,
     'source-layer': 'landuse',
-    minzoom: VISIBILITY.LANDUSE,
+    minzoom: 8,
     filter: ['==', ['get', 'class'], 'cemetery'],
     paint: {
       'fill-color': COLORS.cemetery,
-      'fill-opacity': 0.5,
+      'fill-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.4, 10, 0.5],
     },
   } as LayerSpecification,
 
@@ -124,11 +170,11 @@ export const landuseLayers: LayerSpecification[] = [
     type: 'fill',
     source: SOURCE,
     'source-layer': 'landuse',
-    minzoom: VISIBILITY.LANDUSE,
+    minzoom: 8,
     filter: ['==', ['get', 'class'], 'hospital'],
     paint: {
       'fill-color': COLORS.hospital,
-      'fill-opacity': 0.5,
+      'fill-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.4, 10, 0.5],
     },
   } as LayerSpecification,
 
@@ -138,11 +184,11 @@ export const landuseLayers: LayerSpecification[] = [
     type: 'fill',
     source: SOURCE,
     'source-layer': 'landuse',
-    minzoom: VISIBILITY.LANDUSE,
+    minzoom: 8,
     filter: ['match', ['get', 'class'], ['school', 'university', 'college'], true, false],
     paint: {
       'fill-color': COLORS.school,
-      'fill-opacity': 0.5,
+      'fill-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.4, 10, 0.5],
     },
   } as LayerSpecification,
 ];
